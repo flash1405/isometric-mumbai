@@ -1,0 +1,24 @@
+node_modules/
+.env
+out/
+lora-weights/
+.venv/
+__pycache__/
+viewer/public/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
+deploy/
+dataset/
+site/public/tiles/
+site/public/traffic/
+site/public/meta.json
+site/public/places.json
+out/
+dataset/
+deploy/
+*.log
+.DS_Store

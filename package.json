@@ -1,0 +1,21 @@
+{
+  "name": "isometric-mumbai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite render",
+    "render": "node --env-file=.env scripts/render.mjs",
+    "viewer": "vite viewer --port 5174",
+    "site": "vite site --port 5190 --strictPort"
+  },
+  "dependencies": {
+    "3d-tiles-renderer": "0.4.18",
+    "leaflet": "^1.9.4",
+    "three": "0.181.2"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "vite": "7.2.4"
+  }
+}

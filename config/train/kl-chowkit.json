@@ -1,0 +1,25 @@
+{
+  "name": "train/kl-chowkit",
+  "lat": 3.16,
+  "lon": 101.698,
+  "target_height": 30.6,
+  "camera_azimuth_degrees": -15,
+  "camera_elevation_degrees": -45,
+  "meters_per_pixel": 0.293,
+  "quadrant_px": 512,
+  "cols": 14,
+  "rows": 11,
+  "ortho": {
+    "meters_per_pixel": 0.3,
+    "quadrants": 21
+  },
+  "buildings": {
+    "height_scale": 1.0,
+    "min_height": 3.5
+  },
+  "sun": {
+    "azimuth_degrees": 220,
+    "elevation_degrees": 50
+  },
+  "heights_from": "dsm"
+}

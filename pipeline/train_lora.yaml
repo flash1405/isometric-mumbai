@@ -1,0 +1,62 @@
+# ai-toolkit config: Qwen-Image-Edit LoRA, hybrid massing render -> real-3D isometric pixel art.
+# Placeholders (out_dir, dataset, prompt, holdout_a/b) are filled in by `pipeline/lambda_gpu.py train`.
+# Matches the isometric-nyc recipe (rank 16, 3000 steps, lr 1e-4, flowmatch) without
+# quantisation, since a B200 has the memory for full bf16.
+job: extension
+config:
+  name: "isometric-mumbai-teacher-v1"
+  process:
+    - type: "sd_trainer"
+      training_folder: "{out_dir}"
+      device: cuda:0
+      network:
+        type: "lora"
+        linear: 16
+        linear_alpha: 16
+      save:
+        dtype: float16
+        save_every: 500
+        max_step_saves_to_keep: 6
+      datasets:
+        - folder_path: "{dataset}/images"
+          control_path: "{dataset}/control"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.0 # one fixed prompt, embeddings cached
+          resolution: [1024]
+      train:
+        batch_size: 1
+        cache_text_embeddings: true
+        steps: 3000
+        gradient_accumulation: 1
+        timestep_type: "weighted"
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        optimizer: "adamw8bit"
+        lr: 1e-4
+        dtype: bf16
+        skip_first_sample: true
+      model:
+        name_or_path: "Qwen/Qwen-Image-Edit"
+        arch: "qwen_image_edit"
+        quantize: false
+        low_vram: false
+      sample:
+        sampler: "flowmatch"
+        sample_every: 1000
+        width: 1024
+        height: 1024
+        samples:
+          - prompt: "{prompt}"
+            ctrl_img: "{holdout_a}"
+          - prompt: "{prompt}"
+            ctrl_img: "{holdout_b}"
+        neg: ""
+        seed: 42
+        walk_seed: false
+        guidance_scale: 3
+        sample_steps: 14
+meta:
+  name: "[name]"
+  version: "1.0"

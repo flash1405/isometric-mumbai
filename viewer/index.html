@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Isometric Mumbai</title>
+    <style>
+      :root { --bg: #0e1116; --fg: #e8e6e1; --muted: #9aa0a6; --panel: rgba(14,17,22,.82); }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+                   font: 14px/1.4 system-ui, sans-serif; }
+      #map { position: fixed !important; top: 0; left: 0; width: 100vw; height: 100vh; }
+      #panel { position: absolute; top: 12px; left: 12px; background: var(--panel);
+               padding: 10px 14px; border-radius: 8px; max-width: 320px; }
+      #panel h1 { font-size: 16px; margin: 0 0 4px; }
+      #panel p { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+      button { background: #2a2f38; color: var(--fg); border: 1px solid #3a404b;
+               border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+      button.on { background: #e8e6e1; color: #0e1116; }
+      #credit { position: absolute; bottom: 6px; right: 10px; font-size: 11px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="panel">
+      <h1>Isometric Mumbai</h1>
+      <p>Drag to pan, scroll to zoom. Press <b>R</b> or use the buttons to compare against the 3D render.</p>
+      <div id="layers"></div>
+    </div>
+    <div id="credit">Imagery &amp; 3D data: Google · Style LoRA: isometric-nyc (Andy Coenen) · Viewer: OpenSeadragon</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
+    <script type="module">
+      const area = new URLSearchParams(location.search).get("area") || "fort";
+      const layers = await (await fetch(`/${area}/layers.json`)).json();
+      OpenSeadragon.setImageFormatsSupported({ webp: true }); // tiles are WebP; OSD 4.1 opts out by default
+      const viewer = (window.__v = OpenSeadragon({
+        element: document.getElementById("map"),
+        prefixUrl: "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/",
+        tileSources: layers.map((l) => `/${area}/${l}.dzi`),
+        sequenceMode: false,
+        collectionMode: false,
+        showNavigationControl: false,
+        maxZoomPixelRatio: 4,
+        imageSmoothingEnabled: false,
+        blendTime: 0,
+      }));
+      let current = 0;
+      const box = document.getElementById("layers");
+      const show = (i) => {
+        current = i;
+        for (let k = 0; k < viewer.world.getItemCount(); k++)
+          viewer.world.getItemAt(k).setOpacity(k === i ? 1 : 0);
+        [...box.children].forEach((b, k) => b.classList.toggle("on", k === i));
+      };
+      layers.forEach((l, i) => {
+        const b = document.createElement("button");
+        b.textContent = l === "generated" ? "Pixel art" : "3D render";
+        b.style.marginRight = "6px";
+        b.onclick = () => show(i);
+        box.appendChild(b);
+      });
+      viewer.world.addHandler("add-item", () => {
+        if (viewer.world.getItemCount() === layers.length) show(0);
+      });
+      addEventListener("keydown", (e) => e.key.toLowerCase() === "r" && show((current + 1) % layers.length));
+    </script>
+  </body>
+</html>

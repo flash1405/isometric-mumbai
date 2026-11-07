@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>isometric mumbai · the city in pixel art</title>
+<meta name="description" content="An isometric pixel-art map of Mumbai. Search a place or a neighbourhood, then send someone the view.">
+<meta name="theme-color" content="#0d1220">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="isometric mumbai">
+<meta property="og:title" content="isometric mumbai · the city in pixel art">
+<meta property="og:description" content="An isometric pixel-art map of Mumbai. Search a place or a neighbourhood, then send someone the view.">
+<meta property="og:url" content="https://isometricmumbai.com/">
+<meta property="og:image" content="https://isometricmumbai.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://isometricmumbai.com/og-image.jpg">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="map" role="region" aria-label="Isometric pixel-art map of Mumbai"></div>
+
+<div id="loading"><div><i></i>Loading Mumbai</div></div>
+
+<div id="top">
+  <div class="pill glass" id="searchbar">
+    <svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input id="q" type="search" placeholder="Search Mumbai" autocomplete="off" spellcheck="false" aria-label="Search places and neighbourhoods" aria-controls="results">
+    <span class="kbd" aria-hidden="true">/</span>
+    <button class="ibtn" id="rand" title="Surprise me (R)" aria-label="Surprise me">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.6" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>
+    </button>
+    <button class="ibtn" id="traffic" title="Traffic (T)" aria-label="Toggle traffic">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="9" width="16" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 9l2-4h6l2 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="8" cy="17.5" r="1.6" fill="currentColor"/><circle cx="16" cy="17.5" r="1.6" fill="currentColor"/></svg>
+    </button>
+    <button class="ibtn" id="night" title="Night (N)" aria-label="Toggle night">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <button class="ibtn" id="follow" title="Ride along (F)" aria-label="Follow a train or taxi">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="3" width="12" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 10h12" stroke="currentColor" stroke-width="2"/><path d="M8 21l2-4M16 21l-2-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button class="ibtn" id="tour" title="City tour" aria-label="Start a tour of Mumbai">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+    </button>
+    <button class="ibtn" id="share" title="Share this view" aria-label="Share this view">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+  <ul id="results" class="glass" role="listbox"></ul>
+  <div id="chip" class="glass" aria-live="polite"></div>
+</div>
+<div id="caption" class="glass" aria-live="polite" hidden><b></b><span></span><button id="caption-stop" aria-label="Stop">Stop</button></div>
+
+<div id="intro" class="glass" role="dialog" aria-labelledby="intro-title" hidden>
+  <h1 id="intro-title">isometric <b>mumbai</b></h1>
+  <p>All of Mumbai as one pixel-art map, from Colaba to Dahisar. Every building is drawn from real footprints and heights; the cars you see painted on the main roads actually drive.</p>
+  <ul>
+    <li><kbd>/</kbd> search a place, station or neighbourhood</li>
+    <li><kbd>R</kbd> jump somewhere random</li>
+    <li><kbd>T</kbd> traffic on or off &nbsp; <kbd>N</kbd> night &nbsp; <kbd>F</kbd> ride along</li>
+  </ul>
+  <div class="row"><button id="explore" class="cta">Explore the city</button><a id="intro-how" target="_blank" rel="noopener">How it was made &rarr;</a></div>
+</div>
+<a id="madeby" class="glass" target="_blank" rel="noopener"></a>
+<a id="writeup" class="glass" target="_blank" rel="noopener">how it was made <b>&rarr;</b></a>
+<div id="toast" class="glass" role="status"></div>
+<div id="attr"></div>
+
+<script src="/config.js"></script>
+<script src="/vendor/leaflet.js"></script>
+<script src="/app.js"></script>
+<script src="/traffic.js"></script>
+</body>
+</html>

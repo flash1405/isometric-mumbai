@@ -1,0 +1,202 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>vehicle sprites</title>
+<canvas id="c"></canvas>
+<script type="importmap">{ "imports": { "three": "/three.module.js" } }</script>
+<script type="module">
+// Mumbai traffic sprites, rendered from small 3D models in the map's own camera:
+// ground x = screen right, ground y = into the screen, z = up; orthographic view from 45 degrees.
+// A sprite for each vehicle at 72 headings (every 5 degrees). Read by scripts/vehicles/render.mjs.
+import * as THREE from "three";
+
+const SS = 4; // supersampling: rendered at 4x, downsampled in Python
+const PX = 1 / 0.293 * 1.3; // image px per metre (map scale, x1.3 like the painted cars)
+const canvas = document.getElementById("c");
+const N = 72 * SS; // canvas: room for an 11 m bus at any heading
+canvas.width = canvas.height = 256;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setClearColor(0x000000, 0);
+renderer.setSize(256, 256, false);
+const scene = new THREE.Scene();
+const half = 128 / (PX * SS); // metres from centre to canvas edge
+const cam = new THREE.OrthographicCamera(-half, half, half, -half, -100, 100);
+const el = Math.PI / 4;
+cam.up.set(0, Math.sin(el), Math.cos(el));
+cam.position.set(0, -Math.cos(el) * 50, Math.sin(el) * 50);
+cam.lookAt(0, 0, 0);
+scene.add(new THREE.AmbientLight(0xffffff, 1.55));
+const sun = new THREE.DirectionalLight(0xfff2dc, 2.1);
+sun.position.set(-0.75, -0.35, 1.0); // light from the left, like the map
+scene.add(sun);
+
+const M = (c) => new THREE.MeshLambertMaterial({ color: c });
+function box(g, l, w, h, x, y, z, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(l, w, h), Array.isArray(mat) ? mat : mat);
+  m.position.set(x, y, z + h / 2);
+  g.add(m);
+  return m;
+}
+const GLASS = M(0x2c3a4a), TYRE = M(0x151515), LIGHT = M(0xfff1b8), REDL = M(0xb22222);
+// cabin: dark glass sides, coloured roof (box face order: +x, -x, +y, -y, +z, -z)
+function cabin(g, l, w, h, x, z, roof, pillar) {
+  const r = M(roof), gl = GLASS;
+  box(g, l, w, h, x, 0, z, [gl, gl, gl, gl, r, r]);
+  box(g, l * 0.98, w * 1.01, h * 0.12, x, 0, z + h * 0.88, M(pillar ?? roof));
+}
+function wheels(g, xs, w) {
+  for (const x of xs) for (const s of [-1, 1]) box(g, 0.62, 0.2, 0.62, x, s * (w / 2 - 0.05), 0, TYRE);
+}
+function lights(g, l, w, z) {
+  for (const s of [-1, 1]) {
+    box(g, 0.06, 0.28, 0.14, l / 2, s * (w / 2 - 0.3), z, LIGHT);
+    box(g, 0.06, 0.28, 0.14, -l / 2, s * (w / 2 - 0.3), z, REDL);
+  }
+}
+
+const MODELS = {
+  taxi() { // kaali-peeli Premier Padmini: black body, yellow top
+    const g = new THREE.Group();
+    box(g, 4.0, 1.6, 0.7, 0, 0, 0.22, M(0x1c1c1c));
+    cabin(g, 2.0, 1.45, 0.62, -0.15, 0.92, 0xf2c41c, 0xf2c41c);
+    box(g, 0.25, 0.5, 0.12, -0.15, 0, 1.54, M(0xf2c41c));
+    wheels(g, [1.25, -1.25], 1.6); lights(g, 4.0, 1.6, 0.6);
+    return g;
+  },
+  hatch(c) {
+    const g = new THREE.Group();
+    box(g, 3.8, 1.66, 0.72, 0, 0, 0.22, M(c));
+    cabin(g, 2.15, 1.5, 0.66, -0.35, 0.94, c);
+    wheels(g, [1.2, -1.2], 1.66); lights(g, 3.8, 1.66, 0.62);
+    return g;
+  },
+  sedan(c) {
+    const g = new THREE.Group();
+    box(g, 4.45, 1.72, 0.7, 0, 0, 0.24, M(c));
+    cabin(g, 2.2, 1.56, 0.62, -0.15, 0.94, c);
+    wheels(g, [1.45, -1.4], 1.72); lights(g, 4.45, 1.72, 0.62);
+    return g;
+  },
+  suv(c) {
+    const g = new THREE.Group();
+    box(g, 4.6, 1.85, 0.92, 0, 0, 0.3, M(c));
+    cabin(g, 2.9, 1.7, 0.72, -0.3, 1.22, c);
+    wheels(g, [1.5, -1.5], 1.85); lights(g, 4.6, 1.85, 0.8);
+    return g;
+  },
+  bus() { // BEST: red body, cream band, dark windows, grey roof
+    const g = new THREE.Group();
+    const red = M(0xb5302a);
+    box(g, 11.0, 2.5, 1.15, 0, 0, 0.35, red);
+    box(g, 11.0, 2.5, 0.95, 0, 0, 1.5, [GLASS, GLASS, GLASS, GLASS, red, red]);
+    box(g, 11.0, 2.52, 0.18, 0, 0, 1.45, M(0xeee6d2));
+    box(g, 11.0, 2.5, 0.45, 0, 0, 2.45, M(0xb5302a));
+    box(g, 9.5, 1.9, 0.12, 0, 0, 2.9, M(0xbfc3c7));
+    wheels(g, [3.6, -3.4], 2.5); lights(g, 11.0, 2.5, 0.7);
+    return g;
+  },
+  auto() { // auto rickshaw: yellow-green lower body, black canopy, three wheels
+    const g = new THREE.Group();
+    box(g, 2.6, 1.3, 0.7, 0, 0, 0.25, M(0x2f8a3c));
+    box(g, 1.0, 1.3, 0.25, 0.75, 0, 0.95, M(0xe9b81c));
+    box(g, 1.9, 1.32, 0.12, -0.3, 0, 1.75, M(0x1c1c1c));
+    for (const s of [-1, 1]) box(g, 0.08, 0.08, 0.8, 0.6, s * 0.6, 0.95, M(0x1c1c1c));
+    box(g, 0.6, 0.18, 0.55, 1.05, 0, 0, TYRE); wheels(g, [-0.85], 1.3);
+    return g;
+  },
+  tempo(c) { // small goods carrier: cab + cargo box
+    const g = new THREE.Group();
+    box(g, 1.6, 1.9, 1.6, 2.0, 0, 0.3, M(0xe8e4dc));
+    box(g, 0.08, 1.6, 0.6, 2.82, 0, 1.15, GLASS);
+    box(g, 3.6, 2.0, 1.9, -0.7, 0, 0.35, M(c));
+    wheels(g, [2.0, -1.4], 1.9);
+    return g;
+  },
+  bike(c) { // two-wheeler with rider
+    const g = new THREE.Group();
+    box(g, 1.9, 0.32, 0.55, 0, 0, 0.3, M(0x222222));
+    box(g, 0.5, 0.45, 0.65, -0.15, 0, 0.85, M(c));
+    box(g, 0.28, 0.3, 0.28, -0.05, 0, 1.5, M(0x2a2a2a));
+    return g;
+  },
+};
+
+const VARIANTS = [
+  ["taxi", () => MODELS.taxi()], ["taxi", () => MODELS.taxi()],
+  ["white", () => MODELS.hatch(0xf1f0ec)], ["white", () => MODELS.sedan(0xeceae4)], ["white", () => MODELS.suv(0xf3f2ee)],
+  ["silver", () => MODELS.hatch(0xb9bec4)], ["silver", () => MODELS.sedan(0xa9aeb5)],
+  ["red", () => MODELS.hatch(0xb3261e)], ["blue", () => MODELS.sedan(0x2c5aa0)], ["dark", () => MODELS.suv(0x2b2e33)],
+  ["bus", () => MODELS.bus()], ["auto", () => MODELS.auto()], ["auto", () => MODELS.auto()],
+  ["tempo", () => MODELS.tempo(0x3a6db5)], ["tempo", () => MODELS.tempo(0xd9822b)],
+  ["bike", () => MODELS.bike(0xd8452f)], ["bike", () => MODELS.bike(0x2f6fd8)],
+];
+
+window.renderAll = () => {
+  const out = [];
+  VARIANTS.forEach(([cls, make], vi) => {
+    for (let k = 0; k < 72; k++) {
+      const head = (k * 5 * Math.PI) / 180 - Math.PI; // -pi .. pi, ground frame (x right, y up-screen)
+      const g = make();
+      g.rotation.z = head;
+      // contact shadow: soft dark footprint, offset away from the sun
+      const bb = new THREE.Box3().setFromObject(g);
+      scene.add(g);
+      renderer.render(scene, cam);
+      out.push({ cls, vi, head, url: canvas.toDataURL("image/png") });
+      scene.remove(g);
+    }
+  });
+  return out;
+};
+// ---- Mumbai local (EMU) coaches, real scale, 2x map resolution --------------------------------
+function sideTexture(body, band) {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 64;
+  const g = c.getContext("2d");
+  g.fillStyle = body; g.fillRect(0, 0, 512, 64);
+  g.fillStyle = band; g.fillRect(0, 40, 512, 9);            // livery band under the windows
+  g.fillStyle = "#26303a";
+  for (let x = 14; x < 500; x += 26) g.fillRect(x, 14, 16, 18); // windows
+  g.fillStyle = "#3b4048";
+  for (const x of [60, 190, 320, 450]) g.fillRect(x - 11, 8, 22, 50); // wide sliding doorways
+  g.fillStyle = "rgba(0,0,0,0.25)"; g.fillRect(0, 60, 512, 4);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function coach(body, band, motor) {
+  const g = new THREE.Group();
+  const side = new THREE.MeshLambertMaterial({ map: sideTexture(body, band) });
+  const end = M(new THREE.Color(body).multiplyScalar(0.9).getHex()), roof = M(0xa3a9b0);
+  const mats = [end, end, side, side, roof, roof]; // +x, -x, +y, -y, +z, -z
+  const b = new THREE.Mesh(new THREE.BoxGeometry(20.6, 3.66, 3.0), mats); b.position.set(0, 0, 0.8 + 1.5); g.add(b);
+  box(g, 20.0, 3.2, 0.35, 0, 0, 3.8, M(0x8e949b));                  // roof crown
+  for (const x of [-6.5, 0, 6.5]) box(g, 2.2, 1.6, 0.45, x, 0, 4.1, M(0xc3c8cd)); // roof AC units
+  if (motor) {
+    for (const dx of [-0.7, 0.7]) box(g, 0.08, 1.9, 0.08, 6.0 + dx, 0, 4.75, M(0x55595e)); // pantograph: thin frame
+    box(g, 1.5, 0.08, 0.08, 6.0, 0, 4.75, M(0x55595e));
+    for (const s of [-0.5, 0.5]) box(g, 0.06, 0.06, 0.6, 6.0, s, 4.15, M(0x55595e));
+  }
+  box(g, 20.6, 3.0, 0.6, 0, 0, 0.2, M(0x2b2b2b));                   // bogies / underframe
+  return g;
+}
+const TRAINS = [
+  ["wr", () => coach("#ebe5d6", "#7b2333", false)], ["wr_m", () => coach("#ebe5d6", "#7b2333", true)],
+  ["cr", () => coach("#cfd3d8", "#e0aa22", false)], ["cr_m", () => coach("#cfd3d8", "#e0aa22", true)],
+];
+window.renderTrains = () => {
+  const W = 640;
+  canvas.width = canvas.height = W; renderer.setSize(W, W, false);
+  const px = (1 / 0.293) * 2; // 2x map resolution, real scale
+  const h = W / 2 / px;
+  cam.left = -h; cam.right = h; cam.top = h; cam.bottom = -h; cam.updateProjectionMatrix();
+  const out = [];
+  TRAINS.forEach(([cls, make]) => {
+    for (let k = 0; k < 72; k++) {
+      const head = (k * 5 * Math.PI) / 180 - Math.PI;
+      const g = make(); g.rotation.z = head; scene.add(g);
+      renderer.render(scene, cam);
+      out.push({ cls, head, url: canvas.toDataURL("image/png") });
+      scene.remove(g);
+    }
+  });
+  return out;
+};
+window.ready = true;
+</script>
