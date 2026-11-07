@@ -109,6 +109,17 @@ def main():
     m = masks[(tx, ty)]
     return m is not None and m[int(y) % 1024, int(x) % 1024]
 
+  import water
+  wcache = {}
+
+  def on_water(x, y):  # streets mapped through harbours / blurred restricted areas: no cars on the sea
+    q = (int(x // Q), int(y // Q))
+    if q not in wcache:
+      m = water.mask(args.city, *q)
+      wcache[q] = np.asarray(m) if m is not None else None
+    m = wcache[q]
+    return m is not None and m[int(y) % Q, int(x) % Q] > 60
+
   stamps = defaultdict(list)  # quad -> [(sprite, x, y)]
   step = 7 / mpp
   for pts in minor_lines(cfg, pl):
@@ -145,7 +156,7 @@ def main():
         px, py = x[k] - gy[k] * off, y[k] - gx[k] * off * K
         if box and not (box[0] <= px < box[2] and box[1] <= py < box[3]):
           continue
-        if building_at(px, py):
+        if building_at(px, py) or on_water(px, py):
           continue
         head = math.atan2(gy[k], gx[k]) + (math.pi if rng.random() < 0.5 else 0)
         head = (head + math.pi) % (2 * math.pi) - math.pi

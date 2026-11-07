@@ -123,6 +123,34 @@ def military_mask(name, qx, qy):
 FOREST_BLOCK = (126, 50, 6)  # a fully wooded 6x6 block of painted quadrants in Sanjay Gandhi National Park
 
 
+def local_tone(qdir, qx, qy, centre):
+  """Low-frequency colour of the art around a quadrant, blurred across its neighbours (~90 px), so
+  it is continuous from one quadrant to the next."""
+  from PIL import ImageFilter
+  s = Q // 4
+  mos = Image.new("RGB", (3 * s, 3 * s))
+  for j in (-1, 0, 1):
+    for i in (-1, 0, 1):
+      p = Path(qdir) / f"{qx + i}_{qy + j}.png"
+      im = centre if (i, j) == (0, 0) else (Image.open(p).convert("RGB") if p.exists() else centre)
+      mos.paste(im.resize((s, s), Image.Resampling.BOX), ((i + 1) * s, (j + 1) * s))
+  mos = mos.filter(ImageFilter.GaussianBlur(22))
+  return np.asarray(mos.crop((s, s, 2 * s, 2 * s)).resize((Q, Q), Image.Resampling.BILINEAR), np.float32)
+
+
+_FMEAN = None
+
+
+def forest_mean(qdir):
+  global _FMEAN
+  if _FMEAN is None:
+    bx, by, n = FOREST_BLOCK
+    ims = [np.asarray(Image.open(Path(qdir) / f"{bx + i}_{by + j}.png").convert("RGB").resize((32, 32)), np.float32)
+           for i in range(n) for j in range(n) if (Path(qdir) / f"{bx + i}_{by + j}.png").exists()]
+    _FMEAN = np.mean([m.mean((0, 1)) for m in ims], 0) if ims else np.array([70, 95, 60], np.float32)
+  return _FMEAN
+
+
 def forest_texture(name, qdir, qx, qy):
   """Painted woodland for restricted sites: the matching quadrant of a contiguous forest block,
   so neighbouring quadrants join seamlessly (seams only every 6 quadrants)."""
@@ -182,6 +210,41 @@ def halo_alpha(patch):
   return np.asarray(big, np.float32)[c * Q : (c + 1) * Q, c * Q : (c + 1) * Q] / 255
 
 
+_LM = None
+
+
+def landmark_protect(qx, qy):
+  """0..1 mask of repainted landmark boxes in this quadrant (pipeline/landmarks_gpt.py), feathered."""
+  global _LM
+  if _LM is None:
+    _LM = []
+    for f in (ROOT / "out" / "mumbai").glob("landmarks_v3/*.json"):
+      m = json.loads(f.read_text())
+      b0 = (1024 - m["box"]) // 2
+      _LM.append((m["wx"] + b0 + 14, m["wy"] + b0 + 14, m["box"] - 28))
+  x0, y0 = qx * Q, qy * Q
+  hit = [b for b in _LM if b[0] < x0 + Q and b[0] + b[2] > x0 and b[1] < y0 + Q and b[1] + b[2] > y0]
+  if not hit:
+    return None
+  from PIL import ImageDraw, ImageFilter
+  m = Image.new("L", (Q, Q), 0)
+  d = ImageDraw.Draw(m)
+  for bx, by, bs in hit:
+    d.rectangle([bx - x0, by - y0, bx - x0 + bs, by - y0 + bs], fill=255)
+  return np.asarray(m.filter(ImageFilter.GaussianBlur(16)), np.float32) / 255
+
+
+def water_like(img):
+  """0..1 per pixel: how much the painted pixel looks like water (teal / blue / dark sea)."""
+  from PIL import ImageFilter
+  hsv = np.asarray(img.convert("HSV"), np.int16)
+  h, s_, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+  w = ((h >= 105) & (h <= 170) & (s_ >= 45) & (v >= 25) & (v <= 200)) | ((v < 45) & (h >= 100) & (h <= 175))
+  m = Image.fromarray((w * 255).astype(np.uint8))
+  m = m.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(3))  # drop specks
+  return np.asarray(m.filter(ImageFilter.GaussianBlur(1.5)), np.float32) / 255
+
+
 def base_tile(args):
   global _PAL
   qx, qy, qdir, gen_ok, maxz, pal_path, name, patch, halo = args
@@ -203,13 +266,16 @@ def base_tile(args):
     mm = military_mask(name, qx, qy)
     if mm is not None:
       # woodland fill, colour-matched to what surrounds it in this quadrant so it does not read as a patch
-      f = np.asarray(forest_texture(name, qdir, qx, qy), np.float32)
+      # texture from the forest, colour from the art underneath at a ~40 px scale: the fill follows
+      # the local tone of the place (no dark rectangles, even for quadrants fully inside a zone)
+      from PIL import ImageFilter
+      ft = forest_texture(name, qdir, qx, qy)
+      f = np.asarray(ft, np.float32)
       a = np.asarray(img, np.float32)
+      lf = np.asarray(ft.filter(ImageFilter.GaussianBlur(40)), np.float32)
+      la = local_tone(qdir, qx, qy, img)
       w = np.asarray(mm, np.float32) / 255
-      out_px = w < 0.05
-      if out_px.sum() > 2000:
-        f = f + (a[out_px].mean(0) - f.mean((0, 1))) * 0.6
-      f = np.clip(f, 0, 255)
+      f = np.clip(f - lf + (0.6 * la + 0.4 * forest_mean(qdir)), 0, 255)
       img = Image.fromarray((a * (1 - w[..., None]) + f * w[..., None]).astype(np.uint8))
     if wm is not None:  # one consistent sea; keep buildings that lean over it, and bridges
       bm = building_mask(name, qx, qy)
@@ -218,6 +284,14 @@ def base_tile(args):
       rb = road_band(qx, qy)
       if rb is not None:
         wm = ImageChops.subtract(wm, rb)
+      # never paint the sea over a hand-repainted landmark (the Gateway's plaza reaches past the coastline)
+      lp = landmark_protect(qx, qy)
+      if lp is not None:
+        # protect the landmark itself (stone, buildings, causeway), not the sea GPT painted around it
+        from PIL import ImageFilter
+        wl = Image.fromarray((water_like(img) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.GaussianBlur(2))
+        lp = lp * (1 - np.asarray(wl, np.float32) / 255)
+        wm = Image.fromarray((np.asarray(wm, np.float32) * (1 - lp)).astype(np.uint8))
       img.paste(water.texture(qx, qy), (0, 0), wm)
     if patch is not None:  # fade into the background where the painted city meets unpainted land
       al = edge_alpha(patch)[..., None]
@@ -247,9 +321,12 @@ def parent_tile(args):
     out = img.resize((Q, Q), Image.Resampling.LANCZOS)
     if 4 <= z <= 7:  # downsampling averages the art into mud: restore colour and crispness a little per
       from PIL import ImageEnhance, ImageFilter  # level (compounds to ~+26% colour, +8% contrast by z4)
+      bgm = (np.abs(np.asarray(out, np.int16) - np.array(BG, np.int16)).max(2) <= 3)
       out = ImageEnhance.Color(out).enhance(1.06)
       out = ImageEnhance.Contrast(out).enhance(1.02)
       out = out.filter(ImageFilter.UnsharpMask(radius=1.0, percent=45, threshold=2))
+      if bgm.any():  # the empty background stays exactly the page colour (no visible tile rectangle)
+        a = np.asarray(out).copy(); a[bgm] = BG; out = Image.fromarray(a)
     save(out, z, x, y)
   return any_
 
@@ -336,6 +413,9 @@ def main():
   meta = {
     "name": args.name, "width": pl["width"], "height": pl["height"], "tileSize": Q, "maxZoom": maxz,
     "bounds": [x0 * Q, y0 * Q, (x1 + 1) * Q, (y1 + 1) * Q],
+    # the painted city itself (the most zoomed-out view frames this)
+    "city": [int(min(q[0] for q in done)) * Q, int(min(q[1] for q in done)) * Q,
+             int(max(q[0] for q in done) + 1) * Q, int(max(q[1] for q in done) + 1) * Q],
     "geo": {"lat0": cfg["lat"], "lon0": cfg["lon"], "frame": "enu", "right": [rx, ry], "up": [ux, uy],
             "mpp": cfg["meters_per_pixel"]},
   }

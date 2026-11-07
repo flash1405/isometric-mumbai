@@ -11,6 +11,7 @@ Only the box is kept, feathered into the map.
 """
 
 import json
+import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -95,9 +96,9 @@ def window(qdir, wx, wy, kind="quads"):
 def candidates(name, n=2):
   import teacher
   teacher.env()
-  out = ROOT / "out" / name / "landmarks"
+  out = ROOT / "out" / name / os.environ.get("LM_OUT", "landmarks")
   out.mkdir(parents=True, exist_ok=True)
-  qdir, rdir = ROOT / "out" / name / "quads_v2", ROOT / "out" / name / "renders"
+  qdir, rdir = ROOT / "out" / name / os.environ.get("LM_QDIR", "quads_v2"), ROOT / "out" / name / "renders"
   jobs = []
   for lm, (px, py) in positions(name).items():
     desc, box = LANDMARKS[lm]
@@ -128,11 +129,52 @@ def candidates(name, n=2):
       print(*r, flush=True)
 
 
+def blend(art, new, b0, box, ring=48, hem=56, feather=22):
+  """Merge GPT's repainted box into the map so the seam disappears:
+  1) colour transfer: GPT also redrew the context around the box; matching its colours there to the
+     real art gives a per-channel gain/offset for the whole box;
+  2) hem: the remaining difference along each edge (smoothed profile) fades out ~hem px into the box;
+  3) a soft feathered edge."""
+  A = np.asarray(art, np.float32)
+  N = np.asarray(new, np.float32).copy()
+  x0, x1 = b0, b0 + box
+  outer = np.zeros(A.shape[:2], bool)
+  outer[max(0, x0 - ring):min(T, x1 + ring), max(0, x0 - ring):min(T, x1 + ring)] = True
+  outer[x0:x1, x0:x1] = False
+  for c in range(3):
+    ma, sa = A[..., c][outer].mean(), A[..., c][outer].std() + 1e-3
+    mn, sn = N[..., c][outer].mean(), N[..., c][outer].std() + 1e-3
+    N[..., c] = (N[..., c] - mn) * np.clip(sa / sn, 0.8, 1.25) + ma
+  # hem: per-position difference across each edge, smoothed, faded inward
+  def smooth(v, k=41):
+    return np.stack([np.convolve(np.pad(v[:, ch], k // 2, mode="edge"), np.ones(k) / k, "valid") for ch in range(3)], 1)
+  r = np.clip(1 - np.arange(box) / hem, 0, 1)
+  band = 6
+  sides = [  # (art strip just outside, new strip just inside, axis, at start)
+    (A[x0:x1, max(0, x0 - band):x0].mean(1), N[x0:x1, x0:x0 + band].mean(1), "x", True),
+    (A[x0:x1, x1:x1 + band].mean(1), N[x0:x1, x1 - band:x1].mean(1), "x", False),
+    (A[max(0, x0 - band):x0, x0:x1].mean(0), N[x0:x0 + band, x0:x1].mean(0), "y", True),
+    (A[x1:x1 + band, x0:x1].mean(0), N[x1 - band:x1, x0:x1].mean(0), "y", False),
+  ]
+  for out_strip, in_strip, axis, start in sides:
+    d = np.clip(smooth(out_strip - in_strip), -40, 40)  # (box, 3)
+    rr = r if start else r[::-1]
+    if axis == "x":
+      N[x0:x1, x0:x1] += d[:, None, :] * rr[None, :, None]
+    else:
+      N[x0:x1, x0:x1] += d[None, :, :] * rr[:, None, None]
+  N = np.clip(N, 0, 255)
+  m = Image.new("L", (T, T), 0)
+  ImageDraw.Draw(m).rectangle([x0 + feather // 2, x0 + feather // 2, x1 - feather // 2, x1 - feather // 2], fill=255)
+  m = np.asarray(m.filter(ImageFilter.GaussianBlur(feather / 2)), np.float32)[..., None] / 255
+  return Image.fromarray((A * (1 - m) + N * m).astype(np.uint8))
+
+
 def apply(name, picks):
   """Feather the chosen candidates' boxes into the painted quadrants (originals backed up)."""
-  out = ROOT / "out" / name / "landmarks"
-  qdir = ROOT / "out" / name / "quads_v2"
-  bak = ROOT / "out" / name / "quads_v2_prelandmark"
+  out = ROOT / "out" / name / os.environ.get("LM_OUT", "landmarks")
+  qdir = ROOT / "out" / name / os.environ.get("LM_QDIR", "quads_v2")
+  bak = ROOT / "out" / name / f"{qdir.name}_prelandmark"
   bak.mkdir(exist_ok=True)
   for pick in picks:
     s, k = pick.split("=")
@@ -141,10 +183,7 @@ def apply(name, picks):
     art = window(qdir, wx, wy)
     new = Image.open(out / f"{s}_{k}.png").convert("RGB").resize((T, T))
     b0 = (T - box) // 2
-    m = Image.new("L", (T, T), 0)
-    ImageDraw.Draw(m).rectangle([b0 + 10, b0 + 10, b0 + box - 10, b0 + box - 10], fill=255)
-    m = m.filter(ImageFilter.GaussianBlur(10))
-    art.paste(new, (0, 0), m)
+    art = blend(art, new, b0, box)
     for qy in range(wy // Q, (wy + T - 1) // Q + 1):
       for qx in range(wx // Q, (wx + T - 1) // Q + 1):
         p = qdir / f"{qx}_{qy}.png"

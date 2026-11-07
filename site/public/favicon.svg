@@ -1,1 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0d1220"/><path d="M16 5l10 6v10l-10 6-10-6V11z" fill="#ffd166"/><path d="M16 5l10 6-10 6-10-6z" fill="#fff3c4"/><path d="M16 17v10l-10-6V11z" fill="#e0a83a"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
+  <!-- isometric Mumbai tower block: lit left face, shaded right face, gold roof -->
+  <rect width="32" height="32" rx="7" fill="#0d1220"/>
+  <polygon points="16,3 27,8.5 16,14 5,8.5" fill="#f7c948"/>
+  <polygon points="5,8.5 16,14 16,29 5,23.5" fill="#e6dcc8"/>
+  <polygon points="27,8.5 16,14 16,29 27,23.5" fill="#9aa3b1"/>
+  <g fill="#26303e">
+    <rect x="7" y="13" width="2" height="2"/><rect x="11" y="15" width="2" height="2"/>
+    <rect x="7" y="18" width="2" height="2"/><rect x="11" y="20" width="2" height="2"/>
+    <rect x="18" y="16" width="2" height="2"/><rect x="22" y="14" width="2" height="2"/>
+    <rect x="18" y="21" width="2" height="2"/><rect x="22" y="19" width="2" height="2"/>
+  </g>
+  <rect x="12" y="6.5" width="4" height="2" fill="#2f7fb8"/>
+</svg>

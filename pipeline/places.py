@@ -135,6 +135,49 @@ def main():
   path.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
   n_area = sum(p["cat"] == "area" for p in out)
   print(f"{len(out)} places ({n_area} areas, {len(out) - n_area} landmarks) -> {path}")
+
+  # ---- search index (loaded when the search box is first used): many more places + street names ----
+  KIND = {"train_station": "station", "metro_station": "metro", "bus_station": "bus depot", "college_university": "college",
+          "school": "school", "hospital": "hospital", "clinic": "clinic", "shopping_mall": "mall", "hotel": "hotel",
+          "restaurant": "restaurant", "cafe": "café", "park": "park", "beach": "beach", "museum": "museum",
+          "hindu_place_of_worship": "temple", "muslim_place_of_worship": "mosque", "christian_place_of_worship": "church",
+          "sikh_place_of_worship": "gurudwara", "jain_place_of_worship": "jain temple", "buddhist_place_of_worship": "vihara",
+          "stadium_arena": "stadium", "movie_theater": "cinema", "airport": "airport", "market": "market", "bank": "bank",
+          "police_station": "police", "post_office": "post office", "library": "library", "gym": "gym",
+          "bakery": "bakery", "bar": "bar", "landmark_and_historical_building": "landmark", "monument": "monument"}
+  idx, seen2 = [], {p["name"].lower() for p in out}
+
+  def put(name, kind, lat, lon):
+    if not name or len(name) < 3:
+      return
+    k = name.lower()
+    if k in seen2:
+      return
+    col, row = to_px(lat, lon)
+    if bx0 <= col < bx1 and by0 <= row < by1:
+      seen2.add(k)
+      idx.append([name, kind, round(col), round(row)])
+
+  rows = con.sql(f"""
+    SELECT names.primary, basic_category, ST_Y(geometry), ST_X(geometry)
+    FROM read_parquet('{OVERTURE}/theme=places/type=place/*', hive_partitioning=1)
+    WHERE {bbox} AND confidence >= 0.7 AND names.primary IS NOT NULL
+    ORDER BY confidence DESC LIMIT 40000""").fetchall()
+  for name, cat, lat, lon in rows:
+    if cat in KIND:
+      put(name, KIND[cat], lat, lon)
+  streets = con.sql(f"""
+    SELECT names.primary, ST_Y(ST_Centroid(geometry)), ST_X(ST_Centroid(geometry)), ST_Length(geometry) AS len
+    FROM read_parquet('{OVERTURE}/theme=transportation/type=segment/*', hive_partitioning=1)
+    WHERE {bbox} AND subtype = 'road' AND names.primary IS NOT NULL
+      AND class IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified')
+    ORDER BY len DESC""").fetchall()
+  for name, lat, lon, _ in streets:  # longest segment first: one entry per street name
+    put(name, "street", lat, lon)
+  spath = ROOT / "site" / "public" / "search.json"
+  spath.write_text(json.dumps(idx, ensure_ascii=False, separators=(",", ":")))
+  from collections import Counter
+  print(f"search index: {len(idx)} entries {dict(Counter(r[1] for r in idx).most_common(10))} -> {spath} ({spath.stat().st_size // 1024} KB)")
   print("bbox", round(lat_min, 4), round(lon_min, 4), round(lat_max, 4), round(lon_max, 4))
 
 

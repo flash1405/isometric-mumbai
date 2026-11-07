@@ -140,6 +140,61 @@ function startTraffic() {
     ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
     ctx.globalCompositeOperation = op; ctx.filter = f;
   }
+  // ---- night: street lamps along the measured carriageways, lit windows on the buildings ----
+  function streetLamps(b, o, s, size) {
+    if (!b.lamps) {
+      b.lamps = [];
+      const seen = new Set();
+      for (const st of b.stretches || []) {
+        const g = st.geo;
+        if (!g || seen.has(g)) continue;
+        seen.add(g);
+        const every = Math.max(1, Math.round((30 * M) / g.step));
+        for (let k = 0; k < g.L.length; k += every) {
+          const d = g.lo + k * g.step;
+          const [x, y, gx, gy] = at(st.line, d);
+          for (const e of [g.L[k] - 1.5 * M, g.R[k] + 1.5 * M]) b.lamps.push(x - gy * e, y - gx * e * K);
+        }
+      }
+    }
+    const L = b.lamps, r = Math.max(4, 12 * s);
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < L.length; i += 2) {
+      const sx = o.x + L[i] * s, sy = o.y + L[i + 1] * s;
+      if (sx < -20 || sy < -20 || sx > size.x + 20 || sy > size.y + 20) continue;
+      const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+      gr.addColorStop(0, "rgba(255,200,120,0.85)"); gr.addColorStop(0.3, "rgba(255,165,70,0.35)"); gr.addColorStop(1, "rgba(255,150,60,0)");
+      ctx.fillStyle = gr; ctx.fillRect(sx - r, sy - r, 2 * r, 2 * r);
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+  function litWindows(bx, by, b, o, s, size) {
+    if (!b.occ) return;
+    if (!b.winLayer) {
+      // one light layer per area, drawn once: warm (and the odd TV-blue) windows wherever buildings stand
+      const w = b.occ.width, h = b.occ.height;
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(b.occ, 0, 0);
+      const a = g.getImageData(0, 0, w, h).data;
+      const L = document.createElement("canvas"); L.width = w; L.height = h;
+      const lg = L.getContext("2d"), img = lg.createImageData(w, h), d = img.data;
+      let seed = (bx * 73856093) ^ (by * 19349663) || 1;
+      const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (a[i + 3] < 200 || rnd() > 0.095) continue; // ~1 in 10 building pixels has a lit window
+        const blue = rnd() < 0.08, warm = 170 + ((rnd() * 60) | 0);
+        d[i] = blue ? 160 : 255; d[i + 1] = blue ? 195 : warm; d[i + 2] = blue ? 255 : 110; d[i + 3] = 150 + ((rnd() * 105) | 0);
+      }
+      lg.putImageData(img, 0, 0);
+      b.winLayer = L;
+    }
+    const c = index.cell;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(b.winLayer, o.x + bx * c * s, o.y + by * c * s, c * s, c * s);
+    ctx.globalCompositeOperation = "source-over";
+  }
   function spriteFor(veh, head) {
     const hb = Math.round(head / 0.087); // 5 degree bins
     if (veh.hb === hb && veh.spr) return veh.spr;
@@ -624,6 +679,7 @@ function startTraffic() {
       draw(all, o, s, size.x, size.y);
       // erase vehicles wherever a building stands in front of the road
       ctx.filter = "none";
+      if (NIGHT) for (const [bx, by, b] of active) streetLamps(b, o, s, size);
       const dbg = location.search.includes("occdebug");
       ctx.globalCompositeOperation = dbg ? "source-over" : "destination-out";
       if (dbg) ctx.globalAlpha = 0.45;
@@ -633,6 +689,7 @@ function startTraffic() {
       }
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
+      if (NIGHT) for (const [bx, by, b] of active) litWindows(bx, by, b, o, s, size);
     }
     requestAnimationFrame(frame);
   }

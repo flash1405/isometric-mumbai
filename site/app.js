@@ -22,9 +22,12 @@
   const ll = (col, row) => map.unproject([col, row], MAXZ);
   const px = (latlng) => map.project(latlng, MAXZ);
   const bounds = L.latLngBounds(ll(bx0, by1), ll(bx1, by0));
-  map.setMaxBounds(bounds.pad(0.15));
-  const fitZ = map.getBoundsZoom(bounds);
-  map.setMinZoom(Math.max(0, Math.floor(fitZ) - 1));
+  // fully zoomed out = the whole city, neatly framed (not the empty sea and land around it)
+  const [cx0, cy0, cx1, cy1] = meta.city || meta.bounds || [bx0, by0, bx1, by1];
+  const cityB = L.latLngBounds(ll(cx0, cy1), ll(cx1, cy0));
+  map.setMaxBounds(cityB.pad(0.25));
+  const fitZ = map.getBoundsZoom(cityB, false, [24, 24]);
+  map.setMinZoom(Math.max(0, Math.floor(fitZ * 4) / 4));
 
   const layer = L.tileLayer(`${C.tilesBase}{z}/{x}/{y}.webp?v=${C.tilesVersion}`, {
     tileSize: meta.tileSize,
@@ -34,6 +37,7 @@
     noWrap: true,
     bounds,
     keepBuffer: 4,
+    crossOrigin: "anonymous", // postcards draw the tiles into a canvas
     updateWhenZooming: false,
     updateWhenIdle: false, // keep loading while panning (Leaflet waits for idle on phones by default)
   }).addTo(map);
@@ -66,11 +70,19 @@
   const q = document.getElementById("q"), results = document.getElementById("results"), chip = document.getElementById("chip");
   let hits = [], sel = -1, pin = null;
 
+  let extra = [], extraLoading = null;
+  function loadExtra() {
+    return (extraLoading ??= fetch(`/search.json?v=${C.tilesVersion}`).then((r) => (r.ok ? r.json() : []))
+      .then((rows) => { extra = rows.map(([name, kind, col, row]) => ({ name, cat: "place", kind, col, row, rank: 30, key: norm(name) }));
+        if (q.value) { hits = search(q.value); sel = hits.length ? 0 : -1; renderResults(); } })
+      .catch(() => {}));
+  }
+  q.addEventListener("focus", loadExtra, { once: true });
   function search(text) {
     const t = norm(text.trim());
     if (!t) return [];
     const scored = [];
-    for (const p of places) {
+    for (const p of places.concat(extra)) {
       const i = p.key.indexOf(t);
       if (i < 0) continue;
       const wordStart = i === 0 || /[\s(,-]/.test(p.key[i - 1]);
@@ -84,7 +96,7 @@
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", i === sel);
-      li.innerHTML = `<span></span><span class="k">${p.cat === "area" ? "area" : "place"}</span>`;
+      li.innerHTML = `<span></span><span class="k">${p.kind || (p.cat === "area" ? "area" : "place")}</span>`;
       li.firstChild.textContent = p.name;
       li.onmousedown = (e) => { e.preventDefault(); go(p); };
       results.appendChild(li);
@@ -105,7 +117,7 @@
     q.value = p.name;
     q.blur();
     const target = ll(p.col, p.row);
-    map.flyTo(target, p.cat === "area" ? MAXZ - 2 : MAXZ - 0.5, { duration: 1.2 });
+    map.flyTo(target, p.cat === "area" ? MAXZ - 2 : p.kind === "street" ? MAXZ - 1 : MAXZ - 0.5, { duration: 1.2 });
     if (pin) map.removeLayer(pin);
     pin = L.marker(target, { icon: L.divIcon({ className: "pin", html: "<span></span>", iconSize: [0, 0] }), keyboard: false }).addTo(map);
     chip.textContent = p.name;
@@ -233,9 +245,72 @@
     if (document.activeElement === q) return;
     if (e.key === "t" || e.key === "T") tb.click();
     if (e.key === "n" || e.key === "N") nb.click();
-    if (e.key === "f" || e.key === "F") fb.click();
-    if (e.key === "Escape") { stopTour(); stopFollow(); }
+    if (e.key === "p" || e.key === "P") document.getElementById("postcard").click();
+    if (e.key === "+" || e.key === "=") map.zoomIn(0.5);
+    if (e.key === "-" || e.key === "_") map.zoomOut(0.5);
+    if (e.key === "0") document.getElementById("home").click();
+    if (e.key === "?") { const it = document.getElementById("intro"); it.hidden = !it.hidden; }
   });
+
+  // ---- map controls ----
+  document.getElementById("zin").onclick = () => map.zoomIn(0.5);
+  document.getElementById("zout").onclick = () => map.zoomOut(0.5);
+  document.getElementById("home").onclick = () => map.flyToBounds(cityB, { padding: [24, 24], duration: 1.1 });
+
+  // ---- where am I: the neighbourhood under the middle of the screen ----
+  const hoods = places.filter((p) => p.cat === "area" && p.rank <= 2);
+  function here() {
+    if (pin) return;
+    const z = map.getZoom();
+    if (z < 4.5) { chip.classList.remove("on"); return; }
+    const c = px(map.getCenter());
+    let best = null, bd = 4500 * 4500;
+    for (const p of hoods) { const d = (p.col - c.x) ** 2 + (p.row - c.y) ** 2; if (d < bd) { bd = d; best = p; } }
+    if (best) { chip.textContent = best.name; chip.classList.add("on"); } else chip.classList.remove("on");
+  }
+  map.on("moveend", here);
+  here();
+
+  // ---- postcard: the current view, framed and captioned, as an image ----
+  document.getElementById("postcard").onclick = async () => {
+    const size = map.getSize(), k = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.round(size.x * k), H = Math.round(size.y * k), band = Math.round(86 * k);
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H + band;
+    const g = cv.getContext("2d");
+    g.fillStyle = "#0d1220"; g.fillRect(0, 0, cv.width, cv.height);
+    const box = map.getContainer().getBoundingClientRect();
+    const night = document.body.classList.contains("night");
+    if (night) g.filter = "url(#nightf) contrast(1.08)";
+    try {
+      for (const img of map.getContainer().querySelectorAll("img.leaflet-tile-loaded")) {
+        const r = img.getBoundingClientRect();
+        if (r.right < box.left || r.bottom < box.top || r.left > box.right || r.top > box.bottom) continue;
+        g.drawImage(img, (r.left - box.left) * k, (r.top - box.top) * k, r.width * k, r.height * k);
+      }
+    } catch (e) { say("Postcards need the map to finish loading"); return; }
+    g.filter = "none";
+    const tc = map.getContainer().querySelector(".traffic-layer");
+    if (tc && tc.style.opacity !== "0") g.drawImage(tc, 0, 0, W, H);
+    // caption band
+    g.fillStyle = "#0d1220"; g.fillRect(0, H, W, band);
+    g.fillStyle = "#ffd166"; g.fillRect(0, H, W, Math.max(2, 3 * k));
+    const place = pin ? chip.textContent : (chip.classList.contains("on") ? chip.textContent : "Mumbai");
+    g.fillStyle = "#eef1f7"; g.font = `800 ${30 * k}px Inter, system-ui, sans-serif`; g.textBaseline = "middle";
+    g.fillText(place, 24 * k, H + band / 2 - 10 * k);
+    g.fillStyle = "#9aa3b8"; g.font = `500 ${15 * k}px Inter, system-ui, sans-serif`;
+    g.fillText("isometric mumbai · isometricmumbai.com", 24 * k, H + band / 2 + 20 * k);
+    let blob;
+    try { blob = await new Promise((ok) => cv.toBlob(ok, "image/png")); } catch (e) { blob = null; }
+    if (!blob) { say("Couldn't make a postcard here"); return; }
+    const file = new File([blob], `mumbai-${place.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`, { type: "image/png" });
+    writeView();
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && matchMedia("(pointer: coarse)").matches) {
+      try { await navigator.share({ files: [file], title: `${place} · isometric mumbai`, url: location.href }); return; } catch (e) { /* cancelled */ }
+    }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    say("Postcard saved");
+  };
 
   // ---- night ----
   const nb = document.getElementById("night");
@@ -243,64 +318,4 @@
   try { if (localStorage.getItem("im_night") === "1") setNight(true); } catch (e) { /* storage blocked */ }
   nb.onclick = () => { const on = !document.body.classList.contains("night"); setNight(on); say(on ? "Night" : "Day"); };
 
-  // ---- ride along: the camera follows a local train (or a taxi) until you take over ----
-  const fb = document.getElementById("follow");
-  let follow = null;
-  function stopFollow() { if (!follow) return; cancelAnimationFrame(follow.raf); follow = null; fb.classList.remove("on"); }
-  fb.onclick = () => {
-    if (follow) { stopFollow(); return; }
-    if (map.getZoom() < MAXZ - 1.5) map.setZoom(MAXZ - 0.5, { animate: false });
-    const t = window.imTraffic && window.imTraffic.pickFollow();
-    if (!t) { say("Nothing moving here; try a busier spot"); return; }
-    say(t.kind === "train" ? "Riding a Mumbai local" : "Following a " + t.kind);
-    fb.classList.add("on");
-    follow = { t };
-    const tick = () => {
-      if (!follow) return;
-      const p = follow.t.pos();
-      if (p) {
-        const c = map.getSize().divideBy(2);
-        const dx = p.x - c.x, dy = p.y - c.y;
-        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) map.panBy([dx * 0.12, dy * 0.12], { animate: false });
-      }
-      follow.raf = requestAnimationFrame(tick);
-    };
-    tick();
-  };
-  map.on("dragstart", stopFollow);
-
-  // ---- city tour ----
-  const TOUR = [
-    ["Gateway of India", "Built in 1924 on the Apollo Bunder waterfront, facing the harbour."],
-    ["Taj Mahal Palace", "The red-domed hotel of 1903, beside the Gateway."],
-    ["Chhatrapati Shivaji Maharaj Terminus (CSMT)", "Victorian Gothic terminus of the Central line, a UNESCO site."],
-    ["Marine Drive", "The Queen's Necklace: 3.6 km of seafront from Nariman Point to Chowpatty."],
-    ["Haji Ali Dargah", "A mosque and tomb on an islet, reached by a causeway at low tide."],
-    ["Mahalaxmi Racecourse", "Turf, grandstands and the supertalls of Mahalaxmi rising behind."],
-    ["Bandra-Worli Sea Link", "The cable-stayed bridge across Mahim Bay, opened in 2009."],
-    ["Bandstand, Bandra", "The promenade of the stars, below Mount Mary and Land's End."],
-    ["Bandra Kurla Complex", "The glass towers of Mumbai's newer business district."],
-    ["Juhu Beach", "Bhel puri, sunsets and the long beach of the western suburbs."],
-  ];
-  const cap = document.getElementById("caption");
-  let tour = null;
-  function stopTour() { if (!tour) return; clearTimeout(tour.t); tour = null; cap.hidden = true; document.getElementById("tour").classList.remove("on"); }
-  document.getElementById("caption-stop").onclick = stopTour;
-  document.getElementById("tour").onclick = () => {
-    if (tour) { stopTour(); return; }
-    stopFollow();
-    const stops = TOUR.map(([n, d]) => [places.find((p) => p.name === n), n.replace(/ \(.*\)$/, ""), d]).filter((x) => x[0]);
-    tour = { i: 0 };
-    document.getElementById("tour").classList.add("on");
-    const next = () => {
-      if (!tour) return;
-      const [p, name, desc] = stops[tour.i % stops.length];
-      tour.i++;
-      cap.hidden = false; cap.querySelector("b").textContent = name; cap.querySelector("span").textContent = desc;
-      map.flyTo(ll(p.col, p.row), MAXZ - 1, { duration: 3.2 });
-      tour.t = setTimeout(next, 9000);
-    };
-    next();
-  };
-  map.on("dragstart", stopTour);
 })();

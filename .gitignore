@@ -22,3 +22,4 @@ dataset/
 deploy/
 *.log
 .DS_Store
+site/public/search.json
