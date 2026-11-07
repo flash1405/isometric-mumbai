@@ -12,7 +12,8 @@ since = f"(strftime('%s','now') - {int(H * 3600)}) * 1000"
 def q(sql):
   r = subprocess.run(["npx", "-y", "wrangler@4.158.0", "d1", "execute", "isometricmumbai-analytics", "--remote", "--json", "--command", sql],
                      capture_output=True, text=True, env=dict(os.environ, CLOUDFLARE_ACCOUNT_ID=os.environ["CF_ACCOUNT_ID"]), cwd=ROOT)
-  return json.loads(r.stdout)[0]["results"]
+  out = r.stdout[r.stdout.find("["):]  # skip any npm notices printed before the JSON
+  return json.loads(out)[0]["results"]
 
 def top(title, sql, n=10):
   rows = q(sql + f" LIMIT {n}")
