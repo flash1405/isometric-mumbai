@@ -122,10 +122,16 @@ def main():
   else:
     build_site(args.version)
     name = "isometricmumbai-preview" if args.preview else "isometricmumbai"
+    import shutil as _sh
+    _sh.copy(SITE / "worker.js", ROOT / "deploy" / "worker.js")
     cfg = {
       "name": name,
       "compatibility_date": "2026-10-01",
-      "assets": {"directory": "./dist", "not_found_handling": "single-page-application"},
+      "main": "worker.js",  # only /api/* runs it (map analytics); everything else is static
+      "assets": {"directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
+                 "run_worker_first": ["/api/*"]},
+      "d1_databases": [{"binding": "DB", "database_name": "isometricmumbai-analytics",
+                        "database_id": os.environ.get("ANALYTICS_D1_ID", "d91c43b1-f212-4a27-a173-6a2d2f80e847")}],
       "workers_dev": False,
     }
     if args.preview:

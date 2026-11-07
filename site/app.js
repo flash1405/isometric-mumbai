@@ -1,6 +1,18 @@
 // isometric mumbai: map viewer (Leaflet, image-pixel CRS).
 (async function () {
   const C = window.IM_CONFIG;
+  // ---- privacy-friendly analytics: random per-tab id, no cookies, no personal data (site/worker.js) ----
+  const LIVE = /isometricmumbai\.com$/.test(location.hostname);
+  let SID = "";
+  try { SID = sessionStorage.getItem("im_sid") || Math.random().toString(36).slice(2, 12); sessionStorage.setItem("im_sid", SID); }
+  catch (e) { SID = Math.random().toString(36).slice(2, 12); }
+  function track(e, v, z) {
+    if (!LIVE) return;
+    const body = JSON.stringify({ sid: SID, e, v: v || "", z: z ?? null, r: e === "view" ? document.referrer : "" });
+    try { navigator.sendBeacon("/api/e", new Blob([body], { type: "application/json" })); } catch (x) { /* ignore */ }
+  }
+  window.imTrack = track;
+  track("view", location.pathname);
   const [meta, places] = await Promise.all([
     fetch("/meta.json").then((r) => r.json()),
     fetch("/places.json").then((r) => r.json()).catch(() => []),
@@ -112,7 +124,8 @@
   });
   q.addEventListener("blur", () => setTimeout(() => results.classList.remove("on"), 100));
 
-  function go(p) {
+  function go(p, how) {
+    track(how || "search", p.name, p.cat === "area" ? 1 : 0);
     results.classList.remove("on");
     q.value = p.name;
     q.blur();
@@ -131,12 +144,13 @@
 
   // ---- surprise me / share ----
   const landmarks = places.filter((p) => p.cat === "landmark");
-  function surprise() { if (landmarks.length) go(landmarks[Math.floor(Math.random() * landmarks.length)]); }
+  function surprise() { if (landmarks.length) go(landmarks[Math.floor(Math.random() * landmarks.length)], "surprise"); }
   document.getElementById("rand").onclick = surprise;
   const toast = document.getElementById("toast");
   function say(t) { toast.textContent = t; toast.classList.add("on"); clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove("on"), 1800); }
   document.getElementById("share").onclick = async () => {
     writeView();
+    track("share", chip.classList.contains("on") ? chip.textContent : "");
     const url = location.href, title = chip.classList.contains("on") ? `${chip.textContent} · isometric mumbai` : "isometric mumbai";
     if (navigator.share && matchMedia("(pointer: coarse)").matches) {
       try { await navigator.share({ title, url }); return; } catch (e) { /* cancelled */ }
@@ -271,7 +285,13 @@
     const c = px(map.getCenter());
     let best = null, bd = 4500 * 4500;
     for (const p of hoods) { const d = (p.col - c.x) ** 2 + (p.row - c.y) ** 2; if (d < bd) { bd = d; best = p; } }
-    if (best) { chip.textContent = best.name; chip.classList.add("on"); } else chip.classList.remove("on");
+    if (best) {
+      chip.textContent = best.name; chip.classList.add("on");
+      clearTimeout(here.t);
+      here.t = setTimeout(() => { // someone stayed a while in this neighbourhood
+        if (best.name !== here.last && (here.n = (here.n || 0) + 1) <= 40) { here.last = best.name; track("place", best.name, map.getZoom()); }
+      }, 6000);
+    } else chip.classList.remove("on");
   }
   map.on("moveend", here);
   here();
@@ -307,6 +327,7 @@
     let blob;
     try { blob = await new Promise((ok) => cv.toBlob(ok, "image/png")); } catch (e) { blob = null; }
     if (!blob) { say("Couldn't make a postcard here"); return; }
+    track("postcard", place);
     const file = new File([blob], `mumbai-${place.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`, { type: "image/png" });
     writeView();
     if (navigator.canShare && navigator.canShare({ files: [file] }) && matchMedia("(pointer: coarse)").matches) {
