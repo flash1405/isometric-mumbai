@@ -244,13 +244,18 @@
   addEventListener("keydown", (e) => {
     if (document.activeElement === q) return;
     if (e.key === "t" || e.key === "T") tb.click();
-    if (e.key === "n" || e.key === "N") nb.click();
     if (e.key === "p" || e.key === "P") document.getElementById("postcard").click();
     if (e.key === "+" || e.key === "=") map.zoomIn(0.5);
     if (e.key === "-" || e.key === "_") map.zoomOut(0.5);
     if (e.key === "0") document.getElementById("home").click();
     if (e.key === "?") { const it = document.getElementById("intro"); it.hidden = !it.hidden; }
   });
+
+  // ---- the city's name, when fully zoomed out ----
+  const ctitle = document.getElementById("citytitle");
+  const fadeTitle = () => ctitle.style.setProperty("--o", Math.max(0, Math.min(1, (map.getMinZoom() + 1.2 - map.getZoom()) / 0.8)).toFixed(2));
+  map.on("zoomend", fadeTitle);
+  fadeTitle();
 
   // ---- map controls ----
   document.getElementById("zin").onclick = () => map.zoomIn(0.5);
@@ -312,10 +317,6 @@
     say("Postcard saved");
   };
 
-  // ---- night ----
-  const nb = document.getElementById("night");
-  const setNight = (on) => { document.body.classList.toggle("night", on); nb.classList.toggle("on", on); try { localStorage.setItem("im_night", on ? "1" : "0"); } catch (e) { /* ignore */ } };
-  try { if (localStorage.getItem("im_night") === "1") setNight(true); } catch (e) { /* storage blocked */ }
-  nb.onclick = () => { const on = !document.body.classList.contains("night"); setNight(on); say(on ? "Night" : "Day"); };
-
+  // (night mode removed; clear any saved preference so nobody is stuck in it)
+  try { localStorage.removeItem("im_night"); } catch (e) { /* ignore */ }
 })();

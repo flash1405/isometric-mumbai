@@ -132,8 +132,9 @@ def main():
       cfg["routes"] = [{"pattern": "preview.isometricmumbai.com", "custom_domain": True},
                        {"pattern": "sample.isometricmumbai.com", "custom_domain": True}]
     else:
-      cfg["routes"] = [{"pattern": "isometricmumbai.com", "custom_domain": True},
-                       {"pattern": "www.isometricmumbai.com", "custom_domain": True}]
+      cfg["routes"] = [{"pattern": "isometricmumbai.com", "custom_domain": True}]
+      if os.environ.get("WITH_WWW", "1") == "1":
+        cfg["routes"].append({"pattern": "www.isometricmumbai.com", "custom_domain": True})
     (ROOT / "deploy" / "wrangler.json").write_text(json.dumps(cfg, indent=2))
     e = dict(os.environ, CLOUDFLARE_ACCOUNT_ID=os.environ["CF_ACCOUNT_ID"])
     r = subprocess.run(["npx", "-y", "wrangler@4.158.0", "deploy", "--config", "wrangler.json"], cwd=ROOT / "deploy", env=e)

@@ -129,3 +129,19 @@ body.ready #loading { opacity: 0; pointer-events: none; }
 body.night .leaflet-tile-pane { filter: url(#nightf) contrast(1.08); }
 .leaflet-tile-pane { transition: filter 0.6s ease; }
 .ibtn.on { background: rgba(255, 210, 120, 0.22); color: var(--accent); }
+
+/* the city's name, in the empty space beside the city when fully zoomed out */
+#citytitle { position: fixed; z-index: 900; left: max(48px, env(safe-area-inset-left)); top: 50%; transform: translateY(-50%);
+  pointer-events: none; color: #fff; opacity: var(--o, 0); transition: opacity .5s ease; }
+#citytitle small { display: block; font: 700 13px/1 var(--sans); letter-spacing: .5em; color: var(--accent); margin-bottom: 12px; }
+#citytitle b { display: block; font: 900 clamp(44px, 6vw, 88px)/.9 var(--sans); letter-spacing: .2em;
+  text-shadow: 0 0 34px rgba(120, 190, 255, .3), 0 4px 30px rgba(0, 0, 0, .6); }
+#citytitle i { display: block; height: 3px; width: 46%; margin: 16px 0 14px; background: linear-gradient(90deg, var(--accent), transparent); }
+#citytitle span { display: block; font: 600 15px/1 var(--sans); letter-spacing: .14em; color: rgba(238, 241, 247, .7); }
+@media (max-width: 900px) {  /* phones / narrow: a centred band under the city */
+  #citytitle { left: 50%; top: auto; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); text-align: center; }
+  #citytitle small { font-size: 10px; margin-bottom: 8px; }
+  #citytitle b { font-size: 40px; letter-spacing: .24em; margin-right: -.24em; }
+  #citytitle i { margin: 10px auto 8px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+  #citytitle span { font-size: 12px; }
+}
